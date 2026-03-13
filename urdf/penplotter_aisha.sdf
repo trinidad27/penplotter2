@@ -310,7 +310,7 @@
          is at z=-0.175 in cam2_1's local frame.
     ══════════════════════════════════════════════════════ -->
     <joint name='loop_closure_link2_link3' type='revolute'>
-      <pose relative_to='cam2_1'>0 0 -0.175 0 0 0</pose>
+      <pose relative_to='cam2_1'>0 0 -0.205 0 0 0</pose>
       <parent>cam2_1</parent>
       <child>link2_1</child>
       <axis>
@@ -334,5 +334,6 @@
 
     <static>0</static>
 
-  </model>
+    <plugin name="pantograph_plugin" filename="/home/aisha/Documents/penplotter2/plugin/build/libpantograph_plugin.so"/>
+</model>
 </sdf>
