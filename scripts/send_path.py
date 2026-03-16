@@ -1,5 +1,7 @@
 import json, math, subprocess, sys, time, os, tempfile
 
+import websocket, base64
+
 L_short    = 0.050
 L_long     = 0.205
 PEN_TO_A   = 0.240
@@ -169,20 +171,9 @@ def spawn_trail(points):
         print(f"[TRAIL] Spawn failed: {r.stderr.strip()}")
         print(f"[TRAIL] SDF saved to {tmp.name} — you can spawn it manually.")
 
-
-# ── Main ─────────────────────────────────────────────────────────────────────
-
-def main():
-    if len(sys.argv) < 2:
-        print("Usage: python3 send_path.py segments.json [--no-trail]")
-        sys.exit(1)
-
-    enable_trail = "--no-trail" not in sys.argv
-
-    with open(sys.argv[1]) as f:
-        segments = json.load(f)
-
+def draw_segments(segments):
     print(f"Loaded {len(segments)} segments. Publishing to {TOPIC}")
+    enable_trail = "--no-trail" not in sys.argv
     if enable_trail:
         print(f"[TRAIL] Pen trail enabled — spheres will be spawned after path completes.")
     print("Starting in 2s — make sure Gazebo is running …")
@@ -234,6 +225,65 @@ def main():
     if enable_trail:
         spawn_trail(trail_points)
 
+def bridge_loop(sendback):
+    def dummy_do_turn():
+        input("Press enter to complete turn...")
+        return sendback
+
+    token = int.to_bytes(1 << 56, 8)
+
+    ws = websocket.WebSocket()
+    try:
+        ws.connect("ws://localhost:3000/ws", header = {
+            "Authorization": base64.urlsafe_b64encode(token).decode()
+        })
+    except Exception as e:
+        print("Failed to connect to server", e)
+        return
+
+    print("Waiting for session to start...")
+    msg = json.loads(ws.recv())
+    if msg["type"] != "START_SESSION":
+        print("Server error")
+        return
+    session_id = msg["session_id"]
+    print("Session started")
+
+    while True:
+        msg = json.loads(ws.recv())
+        assert msg["session_id"] == session_id
+        match msg["type"]:
+            case "TURN":
+                lines = dummy_do_turn()
+                submit_msg = {
+                    "type": "SUBMIT",
+                    "session_id": session_id,
+                    "svg": lines 
+                }
+                ws.send(json.dumps(submit_msg))
+            case "DRAW":
+                draw_segments(msg["svg"])
+
+def main():
+    if len(sys.argv) < 2:
+        print("Usage: python3 send_path.py segments.json [--no-trail] [--bridge sendback.json]")
+        sys.exit(1)
+
+    bridge_idx = sys.argv.index("--bridge")
+
+    if bridge_idx >= 0:
+        if bridge_idx + 1 >= len(sys.argv):
+            print("didn't specify the sendback file")
+            sys.exit(1)
+
+        with open(sys.argv[bridge_idx + 1]) as f:
+            sendback = json.load(f)
+        bridge_loop(sendback)
+    else:
+        with open(sys.argv[1]) as f:
+            segments = json.load(f)
+
+        draw_segments(segments)
 
 if __name__ == "__main__":
     main()
