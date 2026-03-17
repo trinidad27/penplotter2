@@ -23,7 +23,7 @@ Usage:
     python3 ~/Documents/penplotter/penplottersliders_sim.py
 """
 
-import json, subprocess, math
+import json, subprocess, math, time, threading
 import tkinter as tk
 import tkinter.filedialog as filedialog
 from tkinter import ttk, messagebox
@@ -139,13 +139,17 @@ def _set(name, deg):
          "--joint-name",name,"--pos-t",str(math.radians(deg))])
 
 def apply_joints(phi1, phi2):
-    """Compute and set all four joints. Returns FK dict or None."""
+    """Compute FK and fire all four joints in parallel. Returns FK dict or None."""
     fk = forward_kinematics(phi1, phi2)
     if fk:
-        _set(JOINT_PHI1,  phi1)
-        _set(JOINT_PHI2,  phi2)
-        _set(JOINT_PHI15, fk['phi15'])
-        _set(JOINT_PHI18, fk['phi18_gz'])
+        threads = [
+            threading.Thread(target=_set, args=(JOINT_PHI1,  phi1),            daemon=True),
+            threading.Thread(target=_set, args=(JOINT_PHI2,  phi2),            daemon=True),
+            threading.Thread(target=_set, args=(JOINT_PHI15, fk['phi15']),     daemon=True),
+            threading.Thread(target=_set, args=(JOINT_PHI18, fk['phi18_gz']),  daemon=True),
+        ]
+        for t in threads: t.start()
+        for t in threads: t.join()
     return fk
 
 
@@ -178,22 +182,68 @@ def build_gui():
     root.resizable(False, False)
     P = {"padx":16,"pady":6}
 
+    # ── 2D preview canvas ─────────────────────────────────────────────────────
+    _CW, _CH = 400, 400
+    _WS      = 0.55                       # workspace half-span metres
+    _SCALE   = _CW / (2 * _WS)
+
+    def _to_cv(px, pz):
+        return _CW/2 + px*_SCALE, _CH/2 - pz*_SCALE
+
+    pf = tk.LabelFrame(root, text="Live pen path preview  (model XZ plane)",
+                       font=("Helvetica", 10), padx=4, pady=4)
+    pf.grid(row=0, column=0, columnspan=4, padx=16, pady=(12, 4))
+    cv = tk.Canvas(pf, width=_CW, height=_CH, bg="#1a1a2e",
+                   highlightthickness=1, highlightbackground="#444")
+    cv.pack()
+
+    # Grid lines every 100 mm
+    ox, oy = _to_cv(0, 0)
+    for mm in range(-500, 501, 100):
+        m = mm / 1000
+        x0, _ = _to_cv(m, -_WS); x1, _ = _to_cv(m, _WS)
+        _, y0 = _to_cv(-_WS, m); _, y1 = _to_cv(_WS, m)
+        col = "#2a2a4a" if mm % 200 else "#3a3a6a"
+        cv.create_line(x0, 0, x0, _CH, fill=col)
+        cv.create_line(0, y0, _CW, y0, fill=col)
+        if mm and mm % 200 == 0:
+            cx2, _ = _to_cv(m, 0); _, cy2 = _to_cv(0, m)
+            cv.create_text(cx2, oy+10, text=f"{mm}", fill="#555577",
+                           font=("Helvetica", 7))
+            cv.create_text(ox+14, cy2, text=f"{mm}", fill="#555577",
+                           font=("Helvetica", 7))
+    cv.create_line(0, oy, _CW, oy, fill="#555588", width=1)
+    cv.create_line(ox, 0, ox, _CH, fill="#555588", width=1)
+
+    _prev_cv = [None]   # last canvas point while pen down
+
+    def _cv_update(px, pz, down):
+        cx, cy = _to_cv(px, pz)
+        if down and _prev_cv[0]:
+            cv.create_line(_prev_cv[0][0], _prev_cv[0][1], cx, cy,
+                           fill="#3399ff", width=1.5, capstyle="round", tags="path")
+        _prev_cv[0] = (cx, cy) if down else None
+
+    def _cv_clear():
+        cv.delete("path"); _prev_cv[0] = None
+
+
     # Header
     tk.Label(root,text="Pen Plotter — Gazebo Controller",
-             font=("Helvetica",15,"bold")).grid(row=0,column=0,columnspan=4,pady=(16,2))
+             font=("Helvetica",15,"bold")).grid(row=1,column=0,columnspan=4,pady=(16,2))
     tk.Label(root,
              text="All 4 joints (R9, R10, R15, R18) are set simultaneously — no loop-closure pop.",
-             font=("Helvetica",9),fg="grey").grid(row=1,column=0,columnspan=4)
+             font=("Helvetica",9),fg="grey").grid(row=2,column=0,columnspan=4)
     tk.Label(root,
              text=f"link3={L_short*1e3:.0f}mm  cam={L_long*1e3:.0f}mm  "
                   f"link1={L_link*1e3:.0f}mm  pen→A={PEN_TO_A*1e3:.0f}mm  A→B={PEN_A_TO_B*1e3:.0f}mm",
              font=("Helvetica",9),fg="#888").grid(row=2,column=0,columnspan=4,pady=(0,6))
     ttk.Separator(root,orient="horizontal").grid(
-        row=3,column=0,columnspan=4,sticky="ew",padx=16)
+        row=4,column=0,columnspan=4,sticky="ew",padx=16)
 
     # ── Sliders ───────────────────────────────────────────────────────────────
     tk.Label(root,text="Manual joint control",font=("Helvetica",11,"bold"),fg="#444").grid(
-        row=4,column=0,columnspan=4,sticky="w",padx=16,pady=(8,2))
+        row=5,column=0,columnspan=4,sticky="w",padx=16,pady=(8,2))
 
     phi1_var = tk.DoubleVar(value=0.0)
     phi2_var = tk.DoubleVar(value=45.0)
@@ -220,7 +270,7 @@ def build_gui():
                                      "#cc4400", 180,-180, phi2_var)
 
     ttk.Separator(root,orient="horizontal").grid(
-        row=7,column=0,columnspan=4,sticky="ew",padx=16,pady=(4,0))
+        row=8,column=0,columnspan=4,sticky="ew",padx=16,pady=(4,0))
 
     # ── Computed joint readout ────────────────────────────────────────────────
     cr = tk.Frame(root); cr.grid(row=8,column=0,columnspan=4,sticky="w",padx=16,pady=(6,2))
@@ -260,13 +310,14 @@ def build_gui():
             fk_a.config(text=f"({ax:.4f},{az:.4f})")
             fk_b.config(text=f"({pbx:.4f},{pbz:.4f})")
             if recording and pen_down: trajectory.append((px,pz))
+            _cv_update(px, pz, pen_down)
 
     ttk.Separator(root,orient="horizontal").grid(
-        row=10,column=0,columnspan=4,sticky="ew",padx=16,pady=(4,0))
+        row=11,column=0,columnspan=4,sticky="ew",padx=16,pady=(4,0))
 
     # ── Inverse kinematics ────────────────────────────────────────────────────
     tk.Label(root,text="Move to (x, z)",font=("Helvetica",11,"bold"),fg="#444").grid(
-        row=11,column=0,columnspan=4,sticky="w",padx=16,pady=(8,2))
+        row=12,column=0,columnspan=4,sticky="w",padx=16,pady=(8,2))
     ikf=tk.Frame(root); ikf.grid(row=12,column=0,columnspan=4,sticky="w",padx=16,pady=(0,8))
     tk.Label(ikf,text="x (m):",font=("Helvetica",11)).pack(side=tk.LEFT)
     ik_x=tk.Entry(ikf,width=8,font=("Helvetica",11)); ik_x.insert(0,"0.25")
@@ -293,7 +344,7 @@ def build_gui():
               ).pack(side=tk.LEFT,padx=(0,8))
 
     ttk.Separator(root,orient="horizontal").grid(
-        row=13,column=0,columnspan=4,sticky="ew",padx=16,pady=(4,0))
+        row=14,column=0,columnspan=4,sticky="ew",padx=16,pady=(4,0))
 
     # ── Buttons ───────────────────────────────────────────────────────────────
     bf=tk.Frame(root); bf.grid(row=14,column=0,columnspan=4,pady=(8,4))
@@ -352,7 +403,8 @@ def build_gui():
 
     def clear_traj():
         trajectory.clear()
-        ik_st.config(text="Trajectory cleared.",fg="grey")
+        _cv_clear()
+        ik_st.config(text="Path cleared.",fg="grey")
     tk.Button(bf2,text="🗑  Clear path",command=clear_traj,font=("Helvetica",11),width=14
               ).pack(side=tk.LEFT,padx=6)
 
@@ -399,8 +451,10 @@ def build_gui():
             pen_down = draw
             pen_btn_text.set("Pen: DOWN" if draw else "Pen: UP  ")
             pen_btn.config(fg="#225522" if draw else "#aa2222")
+            if not draw: _prev_cv[0] = None
             phi1_var.set(round(res[0],1)); phi2_var.set(round(res[1],1))
             _refresh()
+            time.sleep(0.3)
             root.update()
             return True
 

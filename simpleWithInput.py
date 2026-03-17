@@ -31,6 +31,30 @@ ORIGIN_X = -180       # turtle-space x of motor pivot
 ORIGIN_Y = -160       # turtle-space y of motor pivot
 
 
+# ── Arm collision (capsule model) ────────────────────────────────────────────
+
+ARM_WIDTH      = 0.010   # physical arm width, 10 mm
+# Minimum angular separation: angle at which arm1's tip (L_short away from O)
+# is exactly ARM_WIDTH clear of arm4's centre-line.
+#   L_short * sin(MIN_ARM_ANGLE) = ARM_WIDTH  →  solve for angle
+MIN_ARM_ANGLE  = math.degrees(math.asin(ARM_WIDTH / L_short))  # ≈ 11.5°
+
+
+def arms_collide(theta1_deg, theta2_deg):
+    """Return True if arm1 and arm4 would physically overlap.
+
+    Both arms radiate from the same pivot O.  The binding constraint is the
+    tip of arm1 (the shorter arm, L_short = 50 mm): when the angular gap
+    between the two centre-lines is less than MIN_ARM_ANGLE the arms overlap.
+    We use the shorter arm as the reference because it sets the tightest
+    clearance — arm4 is longer so its tip sweeps a wider arc, but arm1's tip
+    is the first thing that would physically clash.
+    """
+    diff = abs(theta1_deg - theta2_deg) % 360.0
+    if diff > 180.0:
+        diff = 360.0 - diff          # always in [0, 180]
+    return diff < MIN_ARM_ANGLE
+
 
 # ── Kinematics ────────────────────────────────────────────────────────────────
 
@@ -71,12 +95,6 @@ def forward_kinematics(theta1_deg, theta2_deg):
     pen_y = ay + PEN_TO_A * dy / d
     return ax, ay, pbx, pby, pen_x, pen_y
 
-    return ax, ay, pbx, pby, pen_x, pen_y
-
-
-def _t1_valid(t1):
-    return True   # no physical restrictions in simulation
-
 
 def inverse_kinematics(x, y, prev_t1=None, prev_t2=None):
     """Returns (theta1, theta2) or None.
@@ -92,6 +110,7 @@ def inverse_kinematics(x, y, prev_t1=None, prev_t2=None):
       θ1 = atan2(arm1_tip)   [arm1_tip must have length L_short]
 
     If prev_t1/prev_t2 given, picks closest solution to avoid flipping.
+    Also filters out solutions where arms collide.
     """
     a_cands = _ci(x, y, PEN_TO_A, 0, 0, L_long)
     solutions = []
@@ -113,9 +132,13 @@ def inverse_kinematics(x, y, prev_t1=None, prev_t2=None):
         # Check arm1 length matches L_short
         d1 = math.sqrt(m1x**2 + m1y**2)
         if abs(d1 - L_short) > 1e-6:
-            continue   # geometry inconsistent (shouldn't happen with correct dims)
+            continue
 
         t1 = math.degrees(math.atan2(m1y, m1x))
+
+        # Skip configurations where arms physically collide
+        if arms_collide(t1, t2):
+            continue
 
         fk = forward_kinematics(t1, t2)
         if fk is None:
@@ -153,9 +176,6 @@ def draw_dot(t, x, y, color, size=6):
     t.circle(size//2); t.end_fill(); t.penup()
 
 
-# ── (DualRangeSlider removed — θ1 now uses a plain Scale) ────────────────────
-
-
 # ── Main application ──────────────────────────────────────────────────────────
 
 class PantographSim:
@@ -180,11 +200,13 @@ class PantographSim:
         self.t_path.width(1)
 
         # State
-        self.theta1       = tk.DoubleVar(value=135.0)
-        self.theta2       = tk.DoubleVar(value=90.0)
-        self.pen_down     = True
-        self.last_pen_pos = None
-        self.status_var   = tk.StringVar(value="")
+        self.theta1         = tk.DoubleVar(value=135.0)
+        self.theta2         = tk.DoubleVar(value=90.0)
+        self.last_valid_t1  = 135.0   # ← last collision-free θ1
+        self.last_valid_t2  = 90.0    # ← last collision-free θ2
+        self.pen_down       = True
+        self.last_pen_pos   = None
+        self.status_var     = tk.StringVar(value="")
 
         # Controls
         ctrl = tk.Frame(self.root, padx=8, pady=4)
@@ -199,7 +221,7 @@ class PantographSim:
         self.lbl1.grid(row=0, column=2, **pad)
         tk.Scale(ctrl, from_=-180, to=180,
                  orient=tk.HORIZONTAL, length=320, resolution=0.5,
-                 variable=self.theta1, command=self._on_slider,
+                 variable=self.theta1, command=self._on_t1_slider,
                  showvalue=False, troughcolor="#b0c8f0"
                  ).grid(row=0, column=1, **pad)
 
@@ -211,7 +233,7 @@ class PantographSim:
         self.lbl2.grid(row=1, column=2, **pad)
         tk.Scale(ctrl, from_=-180, to=180,
                  orient=tk.HORIZONTAL, length=320, resolution=0.5,
-                 variable=self.theta2, command=self._on_slider,
+                 variable=self.theta2, command=self._on_t2_slider,
                  showvalue=False, troughcolor="#f0c0a0"
                  ).grid(row=1, column=1, **pad)
 
@@ -248,9 +270,28 @@ class PantographSim:
 
     # ── Callbacks ─────────────────────────────────────────────────────────────
 
-    def _on_slider(self, _=None):
-        self.lbl1.config(text=f"{self.theta1.get():+7.1f}°")
-        self.lbl2.config(text=f"{self.theta2.get():6.1f}°")
+    def _on_t1_slider(self, _=None):
+        t1 = self.theta1.get()
+        t2 = self.theta2.get()
+        if arms_collide(t1, t2):
+            # Revert θ1 to last valid, leave θ2 unchanged
+            self.theta1.set(self.last_valid_t1)
+            self.status_var.set("⚠  Arm collision — θ1 clamped.")
+            return
+        self.last_valid_t1 = t1
+        self.lbl1.config(text=f"{t1:+7.1f}°")
+        self._redraw()
+
+    def _on_t2_slider(self, _=None):
+        t1 = self.theta1.get()
+        t2 = self.theta2.get()
+        if arms_collide(t1, t2):
+            # Revert θ2 to last valid, leave θ1 unchanged
+            self.theta2.set(self.last_valid_t2)
+            self.status_var.set("⚠  Arm collision — θ2 clamped.")
+            return
+        self.last_valid_t2 = t2
+        self.lbl2.config(text=f"{t2:6.1f}°")
         self._redraw()
 
     def _do_ik(self):
@@ -263,7 +304,11 @@ class PantographSim:
             self.status_var.set(f"({x:.3f}, {y:.3f}) m — unreachable."); return
         self.theta1.set(round(result[0], 1))
         self.theta2.set(round(result[1], 1))
-        self._on_slider()
+        self.last_valid_t1 = self.theta1.get()
+        self.last_valid_t2 = self.theta2.get()
+        self.lbl1.config(text=f"{self.theta1.get():+7.1f}°")
+        self.lbl2.config(text=f"{self.theta2.get():6.1f}°")
+        self._redraw()
 
     def _toggle_pen(self):
         self.pen_down = not self.pen_down
@@ -300,7 +345,6 @@ class PantographSim:
             self.status_var.set(f"Error reading file: {e}")
             return
 
-        # Validate basic structure
         try:
             for seg in segments:
                 (seg[0][0], seg[0][1]), (seg[1][0], seg[1][1])
@@ -308,10 +352,9 @@ class PantographSim:
             self.status_var.set("Bad format — expected [[[x,y],[x,y]], ...]")
             return
 
-        STEP_MM = 5.0   # interpolation step along each segment
+        STEP_MM = 5.0
 
         def _move_to(x_m, y_m, draw):
-            """Move pen to (x_m, y_m) in metres; draw=True keeps pen down."""
             prev_t1 = self.theta1.get()
             prev_t2 = self.theta2.get()
             result = inverse_kinematics(x_m, y_m, prev_t1=prev_t1, prev_t2=prev_t2)
@@ -325,7 +368,11 @@ class PantographSim:
                 self.last_pen_pos = None
             self.theta1.set(round(result[0], 1))
             self.theta2.set(round(result[1], 1))
-            self._on_slider()
+            self.last_valid_t1 = self.theta1.get()
+            self.last_valid_t2 = self.theta2.get()
+            self.lbl1.config(text=f"{self.theta1.get():+7.1f}°")
+            self.lbl2.config(text=f"{self.theta2.get():6.1f}°")
+            self._redraw()
             self.root.update()
             return True
 
@@ -343,10 +390,8 @@ class PantographSim:
                 f"({x0_mm:.0f},{y0_mm:.0f}) → ({x1_mm:.0f},{y1_mm:.0f}) mm")
             self.root.update()
 
-            # Lift and move to segment start
             _move_to(x0_m, y0_m, draw=False)
 
-            # Interpolate along segment with pen down
             dx = x1_m - x0_m;  dy = y1_m - y0_m
             dist = math.sqrt(dx**2 + dy**2)
             n_steps = max(1, int(dist / (STEP_MM / 1000)))
