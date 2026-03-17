@@ -78,7 +78,8 @@
           <material>
             <ambient>1 1 1 1</ambient>
             <diffuse>1 1 1 1</diffuse>
-            <specular>0.1 0.1 0.1 1</specular>
+            <specular>0.5 0.5 0.5 1</specular>
+            <emissive>0.3 0.3 0.3 1</emissive>  <!-- adds a slight self-glow so it looks crisp white -->
           </material>
         </visual>
       </link>
