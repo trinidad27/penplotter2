@@ -204,9 +204,11 @@ class PantographSim:
         self.theta2         = tk.DoubleVar(value=90.0)
         self.last_valid_t1  = 135.0   # ← last collision-free θ1
         self.last_valid_t2  = 90.0    # ← last collision-free θ2
+        self._slider_busy   = False   # re-entrancy guard for slider callbacks
         self.pen_down       = True
         self.last_pen_pos   = None
         self.status_var     = tk.StringVar(value="")
+        assert not arms_collide(135.0, 90.0), "startup angles collide — fix defaults"
 
         # Controls
         ctrl = tk.Frame(self.root, padx=8, pady=4)
@@ -271,11 +273,14 @@ class PantographSim:
     # ── Callbacks ─────────────────────────────────────────────────────────────
 
     def _on_t1_slider(self, _=None):
+        if self._slider_busy:
+            return
         t1 = self.theta1.get()
         t2 = self.theta2.get()
         if arms_collide(t1, t2):
-            # Revert θ1 to last valid, leave θ2 unchanged
+            self._slider_busy = True
             self.theta1.set(self.last_valid_t1)
+            self._slider_busy = False
             self.status_var.set("⚠  Arm collision — θ1 clamped.")
             return
         self.last_valid_t1 = t1
@@ -283,11 +288,14 @@ class PantographSim:
         self._redraw()
 
     def _on_t2_slider(self, _=None):
+        if self._slider_busy:
+            return
         t1 = self.theta1.get()
         t2 = self.theta2.get()
         if arms_collide(t1, t2):
-            # Revert θ2 to last valid, leave θ1 unchanged
+            self._slider_busy = True
             self.theta2.set(self.last_valid_t2)
+            self._slider_busy = False
             self.status_var.set("⚠  Arm collision — θ2 clamped.")
             return
         self.last_valid_t2 = t2
@@ -354,12 +362,8 @@ class PantographSim:
 
         STEP_MM = 5.0
 
-        def _move_to(x_m, y_m, draw):
-            prev_t1 = self.theta1.get()
-            prev_t2 = self.theta2.get()
-            result = inverse_kinematics(x_m, y_m, prev_t1=prev_t1, prev_t2=prev_t2)
-            if result is None:
-                return False
+        def _set_angles(result, draw):
+            """Commit a valid IK result to the sim state."""
             self.pen_down = draw
             self.pen_btn.config(
                 text="Pen: DOWN" if draw else "Pen: UP  ",
@@ -374,7 +378,47 @@ class PantographSim:
             self.lbl2.config(text=f"{self.theta2.get():6.1f}°")
             self._redraw()
             self.root.update()
-            return True
+
+        def _draw_segment(x0_m, y0_m, x1_m, y1_m):
+            """
+            Interpolate from (x0,y0) to (x1,y1) with pen down.
+            If a point is unreachable, lift the pen and wait.
+            Re-lower the pen only once IK succeeds again, drawing
+            from the re-entry point onward — no jumps.
+            """
+            dx   = x1_m - x0_m
+            dy   = y1_m - y0_m
+            dist = math.sqrt(dx**2 + dy**2)
+            n_steps = max(1, int(dist / (STEP_MM / 1000)))
+
+            pen_lifted_by_ik = False   # True when we lifted due to IK failure
+
+            for k in range(n_steps + 1):
+                t   = k / n_steps
+                xpt = x0_m + t * dx
+                ypt = y0_m + t * dy
+
+                result = inverse_kinematics(
+                    xpt, ypt,
+                    prev_t1=self.theta1.get(),
+                    prev_t2=self.theta2.get())
+
+                if result is None:
+                    # Point unreachable — lift pen silently, don't move
+                    if not pen_lifted_by_ik:
+                        pen_lifted_by_ik = True
+                        self.pen_down = False
+                        self.pen_btn.config(text="Pen: UP  ", fg="#aa2222")
+                        self.last_pen_pos = None
+                    continue
+
+                if pen_lifted_by_ik:
+                    # Re-entering reachable zone — move to this point with
+                    # pen still up, then lower it here (no jump)
+                    _set_angles(result, draw=False)
+                    pen_lifted_by_ik = False
+
+                _set_angles(result, draw=True)
 
         self._clear_path()
         n_segs = len(segments)
@@ -390,14 +434,14 @@ class PantographSim:
                 f"({x0_mm:.0f},{y0_mm:.0f}) → ({x1_mm:.0f},{y1_mm:.0f}) mm")
             self.root.update()
 
-            _move_to(x0_m, y0_m, draw=False)
+            # Move to segment start with pen up
+            result = inverse_kinematics(x0_m, y0_m,
+                                        prev_t1=self.theta1.get(),
+                                        prev_t2=self.theta2.get())
+            if result is not None:
+                _set_angles(result, draw=False)
 
-            dx = x1_m - x0_m;  dy = y1_m - y0_m
-            dist = math.sqrt(dx**2 + dy**2)
-            n_steps = max(1, int(dist / (STEP_MM / 1000)))
-            for k in range(n_steps + 1):
-                t = k / n_steps
-                _move_to(x0_m + t*dx, y0_m + t*dy, draw=True)
+            _draw_segment(x0_m, y0_m, x1_m, y1_m)
 
         self.status_var.set(f"Done — {n_segs} segments drawn.")
 
