@@ -162,6 +162,13 @@ def to_screen(mx, my):
     return ORIGIN_X + mx * SCALE, ORIGIN_Y + my * SCALE
 
 
+def from_screen(cx, cy):
+    """Inverse of to_screen: canvas pixel → metres."""
+    mx = (cx - 350 - ORIGIN_X) / SCALE
+    my = (250 - cy - ORIGIN_Y) / SCALE
+    return mx, my
+
+
 # ── Drawing primitives ────────────────────────────────────────────────────────
 
 def draw_line(t, x0, y0, x1, y1, color, width=2):
@@ -193,11 +200,14 @@ class PantographSim:
         self.t_grid  = turtle.RawTurtle(self.screen)
         self.t_arm   = turtle.RawTurtle(self.screen)
         self.t_path  = turtle.RawTurtle(self.screen)
+        self.t_draw  = turtle.RawTurtle(self.screen)   # freehand drawing layer
         self.t_label = turtle.RawTurtle(self.screen)
-        for t in (self.t_grid, self.t_arm, self.t_path, self.t_label):
+        for t in (self.t_grid, self.t_arm, self.t_path, self.t_draw, self.t_label):
             t.hideturtle(); t.speed(0); t.penup()
         self.t_path.pencolor("#2255cc")
         self.t_path.width(1)
+        self.t_draw.pencolor("#cc2200")
+        self.t_draw.width(2)
 
         # State
         self.theta1         = tk.DoubleVar(value=135.0)
@@ -209,6 +219,11 @@ class PantographSim:
         self.last_pen_pos   = None
         self.status_var     = tk.StringVar(value="")
         assert not arms_collide(135.0, 90.0), "startup angles collide — fix defaults"
+
+        # Freehand drawing state
+        self.draw_mode      = False   # True when mouse-draw is active
+        self.drawn_segments = []      # list of [[x0_mm,y0_mm],[x1_mm,y1_mm]]
+        self._draw_last     = None    # last canvas (x,y) during a drag
 
         # Controls
         ctrl = tk.Frame(self.root, padx=8, pady=4)
@@ -261,11 +276,24 @@ class PantographSim:
                   font=("Helvetica", 10)).pack(side=tk.LEFT, padx=4)
         tk.Button(br, text="Load & Draw", command=self._load_and_draw,
                   font=("Helvetica", 10), fg="#225577").pack(side=tk.LEFT, padx=4)
+        self.draw_btn = tk.Button(br, text="Draw Mode: OFF",
+                  command=self._toggle_draw_mode,
+                  font=("Helvetica", 10), fg="#888800", width=14)
+        self.draw_btn.pack(side=tk.LEFT, padx=4)
+        tk.Button(br, text="Clear Drawing", command=self._clear_drawing,
+                  font=("Helvetica", 10), fg="#aa2222").pack(side=tk.LEFT, padx=4)
+        tk.Button(br, text="Export Drawing", command=self._export_drawing,
+                  font=("Helvetica", 10), fg="#226622").pack(side=tk.LEFT, padx=4)
         tk.Button(br, text="Quit", command=self.root.destroy,
                   font=("Helvetica", 10)).pack(side=tk.LEFT, padx=4)
         tk.Label(ctrl, textvariable=self.status_var,
                  font=("Helvetica", 9), fg="#555", anchor="w"
                  ).grid(row=3, column=2, columnspan=2, sticky="w", **pad)
+
+        # Mouse bindings for freehand drawing
+        self.canvas.bind("<ButtonPress-1>",   self._draw_start)
+        self.canvas.bind("<B1-Motion>",       self._draw_move)
+        self.canvas.bind("<ButtonRelease-1>", self._draw_end)
 
         self._draw_grid()
         self._redraw()
@@ -327,6 +355,76 @@ class PantographSim:
 
     def _clear_path(self):
         self.t_path.clear(); self.last_pen_pos = None
+
+    def _clear_drawing(self):
+        self.t_draw.clear()
+        self.drawn_segments = []
+        self._draw_last = None
+        self.status_var.set("Drawing cleared.")
+        self.screen.update()
+
+    def _toggle_draw_mode(self):
+        self.draw_mode = not self.draw_mode
+        if self.draw_mode:
+            self.draw_btn.config(text="Draw Mode: ON ", fg="#cc4400")
+            self.canvas.config(cursor="crosshair")
+            self.status_var.set("Draw mode — click and drag on the canvas to draw.")
+        else:
+            self.draw_btn.config(text="Draw Mode: OFF", fg="#888800")
+            self.canvas.config(cursor="")
+            self.status_var.set(
+                f"Draw mode off — {len(self.drawn_segments)} segment(s) recorded.")
+
+    def _draw_start(self, event):
+        if not self.draw_mode:
+            return
+        self._draw_last = (event.x, event.y)
+
+    def _draw_move(self, event):
+        if not self.draw_mode or self._draw_last is None:
+            return
+        x0c, y0c = self._draw_last
+        x1c, y1c = event.x, event.y
+
+        # Convert canvas pixels → metres → mm
+        x0m, y0m = from_screen(x0c, y0c)
+        x1m, y1m = from_screen(x1c, y1c)
+        x0mm, y0mm = x0m * 1000, y0m * 1000
+        x1mm, y1mm = x1m * 1000, y1m * 1000
+
+        # Record segment
+        self.drawn_segments.append([[x0mm, y0mm], [x1mm, y1mm]])
+
+        # Draw on canvas via turtle (convert back to turtle coords)
+        tx0, ty0 = to_screen(x0m, y0m)
+        tx1, ty1 = to_screen(x1m, y1m)
+        draw_line(self.t_draw, tx0, ty0, tx1, ty1, color="#cc2200", width=2)
+        self.screen.update()
+
+        self._draw_last = (x1c, y1c)
+
+    def _draw_end(self, event):
+        if not self.draw_mode:
+            return
+        self._draw_last = None
+
+    def _export_drawing(self):
+        if not self.drawn_segments:
+            self.status_var.set("Nothing to export — draw something first.")
+            return
+        path = filedialog.asksaveasfilename(
+            title="Export drawing as JSON",
+            defaultextension=".json",
+            filetypes=[("JSON files", "*.json"), ("All files", "*.*")])
+        if not path:
+            return
+        try:
+            with open(path, "w") as f:
+                json.dump(self.drawn_segments, f, indent=2)
+            self.status_var.set(
+                f"Exported {len(self.drawn_segments)} segments → {path}")
+        except Exception as e:
+            self.status_var.set(f"Export failed: {e}")
 
     def _load_and_draw(self):
         """
