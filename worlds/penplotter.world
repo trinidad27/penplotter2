@@ -57,5 +57,32 @@
 
     <!-- ── The robot (URDF loaded via spawn script, not hardcoded here) ── -->
 
+    <!-- ── A4 Paper ── -->
+    <model name="a4_paper">
+      <static>true</static>
+      <pose>0 0.200 0.001 0 0 0</pose>
+      <link name="paper_link">
+        <collision name="paper_collision">
+          <geometry>
+            <box>
+              <size>0.297 0.210 0.001</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="paper_visual">
+          <geometry>
+            <box>
+              <size>0.297 0.210 0.001</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>1 1 1 1</ambient>
+            <diffuse>1 1 1 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+    </model>
+
   </world>
 </sdf>

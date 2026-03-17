@@ -1,0 +1,3 @@
+gazebo --verbose ~/Documents/penplotter2/worlds/penplotter.world
+gz model -w penplotter_world -m penplotter -f ~/Documents/penplotter2/urdf/penplotter_aisha.sdf
+python3 ~/Documents/penplotter2/scripts/send_path.py ~/Documents/penplotter2/simple_square.json
