@@ -1,3 +1,8 @@
 plugin/build/
 *.so
 *.o
+
+
+# Added by cargo
+
+/target
