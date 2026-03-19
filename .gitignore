@@ -6,3 +6,5 @@ plugin/build/
 # Added by cargo
 
 /target
+target/
+.cargo/
