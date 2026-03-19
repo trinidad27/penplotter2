@@ -759,6 +759,7 @@ def bridge_loop(sim: PantographSim):
         assert msg["session_id"] == session_id
         match msg["type"]:
             case "TURN":
+                print("OUR TURN")
                 lines = sim.drawing_queue.get(block=True)
                 submit_msg = {
                     "type": "SUBMIT",
@@ -767,6 +768,7 @@ def bridge_loop(sim: PantographSim):
                 }
                 ws.send(json.dumps(submit_msg))
             case "DRAW":
+                print("OUR DRAW")
                 sim._draw(json.loads(msg["svg"]))
 
 if __name__ == "__main__":
