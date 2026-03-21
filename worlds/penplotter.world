@@ -7,33 +7,6 @@
       <uri>model://sun</uri>
     </include>
 
-    <!-- ── Ground plane (acts as the "paper") ── -->
-    <!-- <model name="paper">
-      <static>true</static>
-      <link name="paper_link">
-        <visual name="paper_visual">
-          <geometry>
-            <plane>
-              <normal>0 0 1</normal>
-              <size>0.5 0.5</size>
-            </plane>
-          </geometry>
-          <material>
-            <ambient>1 1 1 1</ambient>
-            <diffuse>1 1 1 1</diffuse>
-          </material>
-        </visual>
-        <collision name="paper_collision">
-          <geometry>
-            <plane>
-              <normal>0 0 1</normal>
-              <size>0.5 0.5</size>
-            </plane>
-          </geometry>
-        </collision>
-      </link>
-    </model> -->
-
     <!-- ── Physics: increase iterations for closed-loop stability ── -->
     <physics name="default_physics" default="0" type="ode">
       <max_step_size>0.001</max_step_size>

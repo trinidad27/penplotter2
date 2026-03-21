@@ -509,7 +509,6 @@ class PantographSim:
     def run(self):
         self.root.mainloop()
 
-
 if __name__ == "__main__":
     sim = PantographSim()
     sim.run()
