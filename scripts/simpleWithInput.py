@@ -18,6 +18,11 @@ import tkinter as tk
 import tkinter.filedialog as filedialog
 import turtle
 
+import websocket
+import threading
+import base64
+import queue
+
 # ── Hardware dimensions (metres) ─────────────────────────────────────────────
 L_short    = 0.050   # arm1: bottom servo motor arm
 L_link     = 0.220   # arm2: link arm (arm1 tip → Pen B)
@@ -224,6 +229,7 @@ class PantographSim:
         self.draw_mode      = False   # True when mouse-draw is active
         self.drawn_segments = []      # list of [[x0_mm,y0_mm],[x1_mm,y1_mm]]
         self._draw_last     = None    # last canvas (x,y) during a drag
+        self.drawing_queue = queue.Queue()
 
         # Controls
         ctrl = tk.Frame(self.root, padx=8, pady=4)
@@ -412,19 +418,8 @@ class PantographSim:
         if not self.drawn_segments:
             self.status_var.set("Nothing to export — draw something first.")
             return
-        path = filedialog.asksaveasfilename(
-            title="Export drawing as JSON",
-            defaultextension=".json",
-            filetypes=[("JSON files", "*.json"), ("All files", "*.*")])
-        if not path:
-            return
-        try:
-            with open(path, "w") as f:
-                json.dump(self.drawn_segments, f, indent=2)
-            self.status_var.set(
-                f"Exported {len(self.drawn_segments)} segments → {path}")
-        except Exception as e:
-            self.status_var.set(f"Export failed: {e}")
+
+        self.drawing_queue.put(json.dumps(self.drawn_segments))
 
     def _load_and_draw(self):
         """
@@ -518,6 +513,99 @@ class PantographSim:
 
                 _set_angles(result, draw=True)
 
+        n_segs = len(segments)
+
+        for i, seg in enumerate(segments):
+            x0_mm, y0_mm = seg[0]
+            x1_mm, y1_mm = seg[1]
+            x0_m, y0_m = x0_mm / 1000, y0_mm / 1000
+            x1_m, y1_m = x1_mm / 1000, y1_mm / 1000
+
+            self.status_var.set(
+                f"Segment {i+1}/{n_segs}  "
+                f"({x0_mm:.0f},{y0_mm:.0f}) → ({x1_mm:.0f},{y1_mm:.0f}) mm")
+            self.root.update()
+
+            # Move to segment start with pen up
+            result = inverse_kinematics(x0_m, y0_m,
+                                        prev_t1=self.theta1.get(),
+                                        prev_t2=self.theta2.get())
+            if result is not None:
+                _set_angles(result, draw=False)
+
+            _draw_segment(x0_m, y0_m, x1_m, y1_m)
+
+        self.status_var.set(f"Done — {n_segs} segments drawn.")
+
+    def _draw(self, segments):
+        try:
+            for seg in segments:
+                (seg[0][0], seg[0][1]), (seg[1][0], seg[1][1])
+        except Exception:
+            self.status_var.set("Bad format — expected [[[x,y],[x,y]], ...]")
+            return
+
+        STEP_MM = 5.0
+
+        def _set_angles(result, draw):
+            """Commit a valid IK result to the sim state."""
+            self.pen_down = draw
+            self.pen_btn.config(
+                text="Pen: DOWN" if draw else "Pen: UP  ",
+                fg="#225522" if draw else "#aa2222")
+            if not draw:
+                self.last_pen_pos = None
+            self.theta1.set(round(result[0], 1))
+            self.theta2.set(round(result[1], 1))
+            self.last_valid_t1 = self.theta1.get()
+            self.last_valid_t2 = self.theta2.get()
+            self.lbl1.config(text=f"{self.theta1.get():+7.1f}°")
+            self.lbl2.config(text=f"{self.theta2.get():6.1f}°")
+            self._redraw()
+            self.root.update()
+
+        def _draw_segment(x0_m, y0_m, x1_m, y1_m):
+            """
+            Interpolate from (x0,y0) to (x1,y1) with pen down.
+            If a point is unreachable, lift the pen and wait.
+            Re-lower the pen only once IK succeeds again, drawing
+            from the re-entry point onward — no jumps.
+            """
+            dx   = x1_m - x0_m
+            dy   = y1_m - y0_m
+            dist = math.sqrt(dx**2 + dy**2)
+            n_steps = max(1, int(dist / (STEP_MM / 1000)))
+
+            pen_lifted_by_ik = False   # True when we lifted due to IK failure
+
+            for k in range(n_steps + 1):
+                t   = k / n_steps
+                xpt = x0_m + t * dx
+                ypt = y0_m + t * dy
+
+                result = inverse_kinematics(
+                    xpt, ypt,
+                    prev_t1=self.theta1.get(),
+                    prev_t2=self.theta2.get())
+
+                if result is None:
+                    # Point unreachable — lift pen silently, don't move
+                    if not pen_lifted_by_ik:
+                        pen_lifted_by_ik = True
+                        self.pen_down = False
+                        self.pen_btn.config(text="Pen: UP  ", fg="#aa2222")
+                        self.last_pen_pos = None
+                    continue
+
+                if pen_lifted_by_ik:
+                    # Re-entering reachable zone — move to this point with
+                    # pen still up, then lower it here (no jump)
+                    _set_angles(result, draw=False)
+                    pen_lifted_by_ik = False
+
+                _set_angles(result, draw=True)
+
+        self._clear_path()
         n_segs = len(segments)
 
         for i, seg in enumerate(segments):
@@ -640,9 +728,48 @@ class PantographSim:
         self.screen.update()
 
     def run(self):
+        bridge_thread = threading.Thread(target=bridge_loop, args=[self])
+        bridge_thread.start()
         self.root.mainloop()
 
+def bridge_loop(sim: PantographSim):
+    token = int.to_bytes(1 << 56, 8)
+
+    ws = websocket.WebSocket()
+    try:
+        ws.connect("ws://localhost:3000/ws", header = {
+            "Authorization": base64.urlsafe_b64encode(token).decode()
+        })
+    except Exception as e:
+        print("Failed to connect to server", e)
+        return
+
+    print("Waiting for session to start...")
+    msg = json.loads(ws.recv())
+    if msg["type"] != "START_SESSION":
+        print("Server error")
+        return
+    session_id = msg["session_id"]
+    print("Session started")
+
+    while True:
+        msg = json.loads(ws.recv())
+        print("got to here")
+        assert msg["session_id"] == session_id
+        if msg["type"] == "TURN":
+            print("OUR TURN")
+            lines = sim.drawing_queue.get(block=True)
+            submit_msg = {
+                "type": "SUBMIT",
+                "session_id": session_id,
+                "svg": lines 
+            }
+            ws.send(json.dumps(submit_msg))
+        if msg["type"] == "DRAW":
+            print("OUR DRAW")
+            sim._draw(json.loads(msg["svg"]))
 
 if __name__ == "__main__":
     sim = PantographSim()
     sim.run()
+
