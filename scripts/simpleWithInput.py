@@ -200,9 +200,9 @@ class PantographSim:
         self.t_grid  = turtle.RawTurtle(self.screen)
         self.t_arm   = turtle.RawTurtle(self.screen)
         self.t_path  = turtle.RawTurtle(self.screen)
-        self.t_draw  = turtle.RawTurtle(self.screen)   # freehand drawing layer
         self.t_label = turtle.RawTurtle(self.screen)
-        for t in (self.t_grid, self.t_arm, self.t_path, self.t_draw, self.t_label):
+        self.t_draw  = turtle.RawTurtle(self.screen)   # freehand drawing layer — on top
+        for t in (self.t_grid, self.t_arm, self.t_path, self.t_label, self.t_draw):
             t.hideturtle(); t.speed(0); t.penup()
         self.t_path.pencolor("#2255cc")
         self.t_path.width(1)
@@ -518,7 +518,6 @@ class PantographSim:
 
                 _set_angles(result, draw=True)
 
-        self._clear_path()
         n_segs = len(segments)
 
         for i, seg in enumerate(segments):
