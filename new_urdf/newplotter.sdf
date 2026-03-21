@@ -1,0 +1,358 @@
+<sdf version='1.7'>
+    <model name='penplotter'>
+  
+      <!-- ── world to base (fixed, 90° rotation to correct Fusion axis) ── -->
+      <joint name='world_to_base' type='fixed'>
+        <pose relative_to='__model__'>0 0 0.01 1.5708 0 0</pose>
+        <parent>world</parent>
+        <child>base_link</child>
+      </joint>
+  
+      <link name='base_link'>
+        <pose relative_to='world_to_base'>0 0 0 0 0 0</pose>
+        <inertial>
+          <pose>0.000455 0.008773 0 0 0 0</pose>
+          <mass>2.712765</mass>
+          <inertia>
+            <ixx>0.006672</ixx>
+            <ixy>-2.6e-05</ixy>
+            <ixz>0</ixz>
+            <iyy>0.012418</iyy>
+            <iyz>0</iyz>
+            <izz>0.006733</izz>
+          </inertia>
+        </inertial>
+        <collision name='base_link_collision'>
+          <pose>0 0 0 0 0 0</pose>
+          <geometry>
+            <mesh>
+              <scale>0.001 0.001 0.001</scale>
+              <uri>/home/aisha/Documents/penplotter2/old_meshes/base_link.stl</uri>
+            </mesh>
+          </geometry>
+        </collision>
+        <visual name='base_link_visual'>
+          <pose>0 0 0 0 0 0</pose>
+          <geometry>
+            <mesh>
+              <scale>0.001 0.001 0.001</scale>
+              <uri>/home/aisha/Documents/penplotter2/old_meshes/base_link.stl</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.2 0.4 0.8 1</ambient>
+            <diffuse>0.2 0.4 0.8 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+  
+      <!-- ── cam2 (stepper 1 — structural arm, link3 rigidly attached) ── -->
+      <joint name='Revolute_9' type='revolute'>
+        <pose relative_to='base_link'>0 0.01 0 0 0 0</pose>
+        <parent>base_link</parent>
+        <child>cam2_1</child>
+        <axis>
+          <xyz>0 1 0</xyz>
+          <limit>
+            <lower>-3.14159</lower>
+            <upper>3.14159</upper>
+          </limit>
+          <dynamics>
+            <damping>2.0</damping>
+            <friction>0.01</friction>
+          </dynamics>
+        </axis>
+      </joint>
+  
+      <link name='cam2_1'>
+        <pose relative_to='Revolute_9'>0 0 0 0 0 0</pose>
+        <inertial>
+          <pose>0 0.015 -0.007599 0 0 0</pose>
+          <mass>0.340885</mass>
+          <inertia>
+            <ixx>9.5e-05</ixx>
+            <ixy>0</ixy>
+            <ixz>0</ixz>
+            <iyy>0.000118</iyy>
+            <iyz>0</iyz>
+            <izz>7.7e-05</izz>
+          </inertia>
+        </inertial>
+        <collision name='cam2_1_collision'>
+          <pose>0 -0.01 0 0 0 0</pose>
+          <geometry>
+            <mesh>
+              <scale>0.001 0.001 0.001</scale>
+              <uri>/home/aisha/Documents/penplotter2/old_meshes/cam2_1.stl</uri>
+            </mesh>
+          </geometry>
+        </collision>
+        <visual name='cam2_1_visual'>
+          <pose>0 -0.01 0 0 0 0</pose>
+          <geometry>
+            <mesh>
+              <scale>0.001 0.001 0.001</scale>
+              <uri>/home/aisha/Documents/penplotter2/old_meshes/cam2_1.stl</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.8 0.8 0.8 1</ambient>
+            <diffuse>0.8 0.8 0.8 1</diffuse>
+            <specular>0.2 0.2 0.2 1</specular>
+          </material>
+        </visual>
+      </link>
+  
+      <!-- ── link3 (rigidly attached to cam2) ── -->
+      <joint name='Rigid_20' type='fixed'>
+        <pose relative_to='cam2_1'>-0.03 0.025 0 0 0 0</pose>
+        <parent>cam2_1</parent>
+        <child>link3_1</child>
+      </joint>
+  
+      <link name='link3_1'>
+        <pose relative_to='Rigid_20'>0 0 0 0 0 0</pose>
+        <inertial>
+          <pose>0.03 -0.00980 -0.116721 0 0 0</pose>
+          <mass>0.304465</mass>
+          <inertia>
+            <ixx>0.000944</ixx>
+            <ixy>0</ixy>
+            <ixz>0</ixz>
+            <iyy>0.000951</iyy>
+            <iyz>5e-06</iyz>
+            <izz>1.3e-05</izz>
+          </inertia>
+        </inertial>
+        <collision name='link3_1_collision'>
+          <pose>0.03 -0.035 0 0 0 0</pose>
+          <geometry>
+            <mesh>
+              <scale>0.001 0.001 0.001</scale>
+              <uri>/home/aisha/Documents/penplotter2/old_meshes/link3_1.stl</uri>
+            </mesh>
+          </geometry>
+        </collision>
+        <visual name='link3_1_visual'>
+          <pose>0.03 -0.035 0 0 0 0</pose>
+          <geometry>
+            <mesh>
+              <scale>0.001 0.001 0.001</scale>
+              <uri>/home/aisha/Documents/penplotter2/old_meshes/link3_1.stl</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.8 0.8 0.8 1</ambient>
+            <diffuse>0.8 0.8 0.8 1</diffuse>
+            <specular>0.2 0.2 0.2 1</specular>
+          </material>
+        </visual>
+      </link>
+  
+      <!-- ── cam1 (stepper 2 — drives pen arm chain, pivot at 50mm X offset) ── -->
+      <joint name='Revolute_10' type='revolute'>
+        <pose relative_to='base_link'>0.05 0.05 0 0 0 0</pose>
+        <parent>base_link</parent>
+        <child>cam1_1</child>
+        <axis>
+          <xyz>0 1 0</xyz>
+          <limit>
+            <lower>-3.14159</lower>
+            <upper>3.14159</upper>
+          </limit>
+          <dynamics>
+            <damping>2.0</damping>
+            <friction>0.01</friction>
+          </dynamics>
+        </axis>
+      </joint>
+  
+      <link name='cam1_1'>
+        <pose relative_to='Revolute_10'>0 0 0 0 0 0</pose>
+        <inertial>
+          <pose>0 0 0 0 0 0</pose>
+          <mass>0.118683</mass>
+          <inertia>
+            <ixx>1.7e-05</ixx>
+            <ixy>0</ixy>
+            <ixz>0</ixz>
+            <iyy>3.2e-05</iyy>
+            <iyz>0</iyz>
+            <izz>1.7e-05</izz>
+          </inertia>
+        </inertial>
+        <collision name='cam1_1_collision'>
+          <pose>-0.05 -0.05 0 0 0 0</pose>
+          <geometry>
+            <mesh>
+              <scale>0.001 0.001 0.001</scale>
+              <uri>/home/aisha/Documents/penplotter2/old_meshes/cam1_1.stl</uri>
+            </mesh>
+          </geometry>
+        </collision>
+        <visual name='cam1_1_visual'>
+          <pose>-0.05 -0.05 0 0 0 0</pose>
+          <geometry>
+            <mesh>
+              <scale>0.001 0.001 0.001</scale>
+              <uri>/home/aisha/Documents/penplotter2/old_meshes/cam1_1.stl</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>1.0 0.85 0.0 1</ambient>
+            <diffuse>1.0 0.85 0.0 1</diffuse>
+            <specular>0.3 0.2 0.05 1</specular>
+          </material>
+        </visual>
+      </link>
+  
+      <!-- ── link1 (driven arm from cam1) ── -->
+      <joint name='Revolute_23' type='revolute'>
+        <pose relative_to='cam1_1'>0 0.005 0 0 0 0</pose>
+        <parent>cam1_1</parent>
+        <child>link1_1</child>
+        <axis>
+          <xyz>0 1 0</xyz>
+          <limit>
+            <lower>-3.14159</lower>
+            <upper>3.14159</upper>
+          </limit>
+          <dynamics>
+            <damping>1.0</damping>
+            <friction>0.3</friction>
+          </dynamics>
+        </axis>
+      </joint>
+  
+      <link name='link1_1'>
+        <pose relative_to='Revolute_23'>0 0 0 0 0 0</pose>
+        <inertial>
+          <pose>0 0.014655 -0.1 0 0 0</pose>
+          <mass>0.357731</mass>
+          <inertia>
+            <ixx>0.001521</ixx>
+            <ixy>0</ixy>
+            <ixz>0</ixz>
+            <iyy>0.001528</iyy>
+            <iyz>0</iyz>
+            <izz>1.6e-05</izz>
+          </inertia>
+        </inertial>
+        <collision name='link1_1_collision'>
+          <pose>-0.05 -0.055 0 0 0 0</pose>
+          <geometry>
+            <mesh>
+              <scale>0.001 0.001 0.001</scale>
+              <uri>/home/aisha/Documents/penplotter2/old_meshes/link1_1.stl</uri>
+            </mesh>
+          </geometry>
+        </collision>
+        <visual name='link1_1_visual'>
+          <pose>-0.05 -0.055 0 0 0 0</pose>
+          <geometry>
+            <mesh>
+              <scale>0.001 0.001 0.001</scale>
+              <uri>/home/aisha/Documents/penplotter2/old_meshes/link1_1.stl</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>1.0 0.85 0.0 1</ambient>
+            <diffuse>1.0 0.85 0.0 1</diffuse>
+            <specular>0.3 0.2 0.05 1</specular>
+          </material>
+        </visual>
+      </link>
+  
+      <!-- ── link2 (pen arm) ── -->
+      <joint name='Revolute_18' type='revolute'>
+        <pose relative_to='link1_1'>0 0 -0.2 0 0 0</pose>
+        <parent>link1_1</parent>
+        <child>link2_1</child>
+        <axis>
+          <xyz>0 -1 0</xyz>
+          <limit>
+            <lower>-3.14159</lower>
+            <upper>3.14159</upper>
+          </limit>
+          <dynamics>
+            <damping>1.0</damping>
+            <friction>0.3</friction>
+          </dynamics>
+        </axis>
+      </joint>
+  
+      <link name='link2_1'>
+        <pose relative_to='Revolute_18'>0 0 0 0 0 0</pose>
+        <inertial>
+          <pose>-0.143092 -0.01 0 0 0 0</pose>
+          <mass>0.917338</mass>
+          <inertia>
+            <ixx>6.2e-05</ixx>
+            <ixy>0</ixy>
+            <ixz>0</ixz>
+            <iyy>0.006746</iyy>
+            <iyz>0</iyz>
+            <izz>0.006745</izz>
+          </inertia>
+        </inertial>
+        <collision name='link2_1_collision'>
+          <pose>-0.05 -0.055 0.2 0 0 0</pose>
+          <geometry>
+            <mesh>
+              <scale>0.001 0.001 0.001</scale>
+              <uri>/home/aisha/Documents/penplotter2/old_meshes/link2_1.stl</uri>
+            </mesh>
+          </geometry>
+        </collision>
+        <visual name='link2_1_visual'>
+          <pose>-0.05 -0.055 0.2 0 0 0</pose>
+          <geometry>
+            <mesh>
+              <scale>0.001 0.001 0.001</scale>
+              <uri>/home/aisha/Documents/penplotter2/old_meshes/link2_1.stl</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>1.0 0.85 0.0 1</ambient>
+            <diffuse>1.0 0.85 0.0 1</diffuse>
+            <specular>0.3 0.2 0.05 1</specular>
+          </material>
+        </visual>
+      </link>
+  
+      <!-- ══════════════════════════════════════════════════════
+           LOOP CLOSURE JOINT
+           Closes the 4-bar linkage: link3_1 (rigidly attached
+           to cam2_1) connects to link2_1.
+           Pose relative to link3_1 — tip of link3 arm.
+      ══════════════════════════════════════════════════════ -->
+      <joint name='loop_closure_link2_link3' type='revolute'>
+        <pose relative_to='link3_1'>0 0 -0.205 0 0 0</pose>
+        <parent>link3_1</parent>
+        <child>link2_1</child>
+        <axis>
+          <xyz>0 1 0</xyz>
+          <limit>
+            <lower>-3.14159</lower>
+            <upper>3.14159</upper>
+          </limit>
+          <dynamics>
+            <damping>1.0</damping>
+            <friction>0.3</friction>
+          </dynamics>
+        </axis>
+        <physics>
+          <ode>
+            <implicit_spring_damper>1</implicit_spring_damper>
+            <cfm_damping>1</cfm_damping>
+          </ode>
+        </physics>
+      </joint>
+  
+      <static>0</static>
+  
+      <plugin name="pantograph_plugin" filename="/home/aisha/Documents/penplotter2/plugin/build/libpantograph_plugin.so"/>
+  
+    </model>
+  </sdf>

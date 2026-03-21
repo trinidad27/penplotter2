@@ -35,8 +35,10 @@ public:
       return;
     }
 
-    this->pid1.Init(80.0, 0.5, 8.0, 10.0, -10.0, 80.0, -80.0);
-    this->pid2.Init(80.0, 0.5, 8.0, 10.0, -10.0, 80.0, -80.0);
+    // Both joints PID controlled — targets are now geometrically compatible
+    // because the IK bakes in the closed-loop constraint
+    this->pid1.Init(80.0, 0.0, 8.0, 10.0, -10.0, 80.0, -80.0);
+    this->pid2.Init(80.0, 0.0, 8.0, 10.0, -10.0, 80.0, -80.0);
 
     this->joint1->SetParam("fmax", 0, 80.0);
     this->joint2->SetParam("fmax", 0, 80.0);
@@ -55,6 +57,27 @@ public:
       std::bind(&PantographPlugin::OnUpdate, this));
 
     gzmsg << "[PantographPlugin] Loaded OK.\n";
+
+    // ── ZERO POSE DIAGNOSTIC ──────────────────────────────────────────────
+    gzmsg << "[PantographPlugin] ZERO POSE CHECK\n";
+    gzmsg << "  joint1 (Revolute_9)  Position(0) = "
+          << this->joint1->Position(0) << " rad = "
+          << this->joint1->Position(0) * 180.0 / M_PI << " deg\n";
+    gzmsg << "  joint2 (Revolute_10) Position(0) = "
+          << this->joint2->Position(0) << " rad = "
+          << this->joint2->Position(0) * 180.0 / M_PI << " deg\n";
+
+    auto link_cam2  = this->model->GetLink("cam2_1");
+    auto link_cam1  = this->model->GetLink("cam1_1");
+    auto link_link1 = this->model->GetLink("link1_1");
+    auto link_link2 = this->model->GetLink("link2_1");
+    auto link_link3 = this->model->GetLink("link3_1");
+    if (link_cam2)  gzmsg << "  cam2_1  world pose: " << link_cam2->WorldPose()  << "\n";
+    if (link_cam1)  gzmsg << "  cam1_1  world pose: " << link_cam1->WorldPose()  << "\n";
+    if (link_link1) gzmsg << "  link1_1 world pose: " << link_link1->WorldPose() << "\n";
+    if (link_link2) gzmsg << "  link2_1 world pose: " << link_link2->WorldPose() << "\n";
+    if (link_link3) gzmsg << "  link3_1 world pose: " << link_link3->WorldPose() << "\n";
+    // ─────────────────────────────────────────────────────────────────────
   }
 
 private:
@@ -76,6 +99,7 @@ private:
     double err1 = t1 - cur1;
     double err2 = t2 - cur2;
 
+    // Wrap to [-π, π]
     while (err1 >  M_PI) err1 -= 2*M_PI;
     while (err1 < -M_PI) err1 += 2*M_PI;
     while (err2 >  M_PI) err2 -= 2*M_PI;
@@ -86,12 +110,25 @@ private:
 
     this->joint1->SetForce(0, force1);
     this->joint2->SetForce(0, force2);
+
+    static int counter = 0;
+    counter++;
+    if (counter % 500 == 0)
+    {
+      gzmsg << "[PantographPlugin]"
+            << "  t1=" << t1 * 180.0 / M_PI << "deg"
+            << "  cur1=" << cur1 * 180.0 / M_PI << "deg"
+            << "  t2=" << t2 * 180.0 / M_PI << "deg"
+            << "  cur2=" << cur2 * 180.0 / M_PI << "deg\n";
+    }
   }
 
   void OnJointCmd(ConstGzStringPtr &_msg)
   {
     std::string data = _msg->data();
     double deg1, deg2;
+
+    // Expect two floats: "theta1_deg,theta2_deg"
     if (sscanf(data.c_str(), "%lf,%lf", &deg1, &deg2) != 2)
     {
       gzerr << "[PantographPlugin] Bad message: " << data << "\n";
