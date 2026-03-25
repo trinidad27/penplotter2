@@ -667,7 +667,7 @@ class PantographSim:
 def bridge_loop(sim: PantographSim, token: bytes):
     ws = websocket.WebSocket()
     try:
-        ws.connect("ws://localhost:3000/ws", header={
+        ws.connect("wss://callumt.tardis.ac/penpal/ws", header={
             "Authorization": base64.urlsafe_b64encode(token).decode()
         })
     except Exception as e:
@@ -715,6 +715,7 @@ def bridge_loop(sim: PantographSim, token: bytes):
                 print("Session Ended")
                 sim.root.after(0, lambda: sim._set_turn_state("STANDBY"))
                 sim.root.after(0, lambda: sim._clear_drawing())
+                sim.root.after(0, lambda: sim._clear_path())
                 break
 
 if __name__ == "__main__":
