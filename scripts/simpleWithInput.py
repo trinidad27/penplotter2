@@ -30,6 +30,7 @@ import websocket
 import threading
 import base64
 import queue
+import sys
 
 # ── Hardware dimensions (metres) ─────────────────────────────────────────────
 L_short    = 0.050   # arm1: bottom servo motor arm
@@ -229,6 +230,7 @@ class PantographSim:
         self._current_line  = None        # polyline being drawn right now
         self._export_offset = 0           # how many polylines have been exported
         self.drawing_queue  = queue.Queue()
+        self.drawing_done_event = threading.Event()
 
         # Session / turn state
         self.session_id     = None
@@ -551,9 +553,9 @@ class PantographSim:
     def _draw(self, polylines):
         """Called from the WebSocket bridge with a list of polylines."""
         segments = polylines_to_segments(polylines)
-        self._clear_path()
         self._execute_segments(segments)
         self._set_turn_state("WAITING…")
+        self.drawing_done_event.set()
 
     # ── Grid ──────────────────────────────────────────────────────────────────
 
@@ -644,13 +646,23 @@ class PantographSim:
         self.screen.update()
 
     def run(self):
-        bridge_thread = threading.Thread(target=bridge_loop, args=[self], daemon=True)
-        bridge_thread.start()
+        if len(sys.argv) >= 2:
+            if sys.argv[1] == "1":
+                token = int.to_bytes(1 << 56, 8, "big")
+            elif sys.argv[1] == "0":
+                token = int.to_bytes(0, 8, "big")
+            else:
+                print("Error: invalid user id")
+                return
+
+            bridge_thread = threading.Thread(target=bridge_loop, args=[self, token], daemon=True)
+            bridge_thread.start()
+        else:
+            print("Warning: didn't set user id so bridge won't start")
+
         self.root.mainloop()
 
-def bridge_loop(sim: PantographSim):
-    token = int.to_bytes(1 << 56, 8)
-
+def bridge_loop(sim: PantographSim, token: bytes):
     ws = websocket.WebSocket()
     try:
         ws.connect("ws://localhost:3000/ws", header={
@@ -658,39 +670,52 @@ def bridge_loop(sim: PantographSim):
         })
     except Exception as e:
         print("Failed to connect to server", e)
-        sim._set_turn_state("ERROR")
+        sim.root.after(0, lambda: sim._set_turn_state("ERROR"))
         return
-
-    print("Waiting for session to start...")
-    sim._set_turn_state("WAITING…")
-
-    msg = json.loads(ws.recv())
-    if msg["type"] != "START_SESSION":
-        print("Server error")
-        sim._set_turn_state("ERROR")
-        return
-    session_id = msg["session_id"]
-    print("Session started")
 
     while True:
+        print("Waiting for session to start...")
+        sim.root.after(0, lambda: sim._set_turn_state("STANDBY"))
+
         msg = json.loads(ws.recv())
-        assert msg["session_id"] == session_id
-        if msg["type"] == "TURN":
-            print("OUR TURN")
-            sim._set_turn_state("YOUR TURN")
-            lines = sim.drawing_queue.get(block=True)
-            sim._set_turn_state("WAITING…")
-            submit_msg = {
-                "type": "SUBMIT",
-                "session_id": session_id,
-                "svg": lines
-            }
-            ws.send(json.dumps(submit_msg))
-        if msg["type"] == "DRAW":
-            print("OUR DRAW")
-            sim._set_turn_state("DRAWING")
-            sim.root.after(0, lambda svg=msg["svg"]: sim._draw(json.loads(svg)))
+        if msg["type"] != "START_SESSION":
+            print("Server error")
+            sim.root.after(0, lambda: sim._set_turn_state("ERROR"))
+            return
+        session_id = msg["session_id"]
+        print("Session started")
+        sim.root.after(0, lambda: sim._set_turn_state("WAITING…"))
+
+        while True:
+            msg = json.loads(ws.recv())
+            assert msg["session_id"] == session_id
+            if msg["type"] == "TURN":
+                print("OUR TURN")
+                sim.root.after(0, lambda: sim._set_turn_state("YOUR TURN"))
+                lines = sim.drawing_queue.get(block=True)
+                submit_msg = {
+                    "type": "SUBMIT",
+                    "session_id": session_id,
+                    "svg": lines
+                }
+                ws.send(json.dumps(submit_msg))
+                sim.root.after(0, lambda: sim._set_turn_state("WAITING…"))
+            elif msg["type"] == "DRAW":
+                print("OUR DRAW")
+                sim.root.after(0, lambda: sim._set_turn_state("DRAWING"))
+                sim.root.after(0, lambda svg=msg["svg"]: sim._draw(json.loads(svg)))
+
+                # block until drawing is actually done
+                sim.drawing_done_event.wait()
+                sim.drawing_done_event.clear()
+            elif msg["type"] == "ERROR":
+                assert msg["reason"] == "DISCONNECTED"
+                print("Session Ended")
+                sim.root.after(0, lambda: sim._set_turn_state("STANDBY"))
+                sim.root.after(0, lambda: sim._clear_drawing())
+                break
 
 if __name__ == "__main__":
     sim = PantographSim()
     sim.run()
+
