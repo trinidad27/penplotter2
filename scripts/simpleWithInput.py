@@ -192,11 +192,13 @@ class PantographSim:
     def __init__(self):
         self.root = tk.Tk()
         self.root.title("Pantograph Plotter — 2D Kinematics Sim")
-        self.root.resizable(False, False)
+
+        self.root.columnconfigure(0, weight=1)
+        self.root.rowconfigure(0, weight=1)
 
         # Turtle canvas
         self.canvas = tk.Canvas(self.root, width=700, height=500, bg="white")
-        self.canvas.grid(row=0, column=0, columnspan=4)
+        self.canvas.grid(row=0, column=0, columnspan=4, sticky="nsew")
         self.screen = turtle.TurtleScreen(self.canvas)
         self.screen.tracer(0)
 
